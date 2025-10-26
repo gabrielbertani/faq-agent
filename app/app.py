@@ -3,10 +3,13 @@ import threading
 import queue
 import streamlit as st
 
-from . import ingest
-from . import logs
-from . import search_agent
-from . import search_tools  # remova se não usar
+# --- compat: permite rodar como pacote (tests) e como script (streamlit run app/app.py)
+try:
+    from . import ingest, logs, search_agent, search_tools  # type: ignore
+except Exception:
+    import sys, pathlib
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+    from app import ingest, logs, search_agent, search_tools  # type: ignore
 
 
 # --- Initialization (cacheado) ---
