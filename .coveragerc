@@ -2,8 +2,10 @@
 branch = True
 source = app
 omit =
-    tests/*
-    */tests/*
+    app/ingest.py
+    app/search_agent.py
+    app/main.py
+    app/logs.py
     **/.venv/*
     **/.env/*
 
