@@ -28,19 +28,21 @@ def stream_response(agent, prompt: str):
     q = queue.Queue()  # Queue[str | None]
 
     async def produce():
-        async with agent.run_stream(user_prompt=prompt) as result:
-            last_len = 0
-            full_text = ""
-            async for chunk in result.stream_output(debounce_by=0.01):
-                new_text = chunk[last_len:]
-                last_len = len(chunk)
-                full_text = chunk
-                if new_text:
-                    q.put(new_text)
-            # terminou: log + guarda resposta completa
-            logs.log_interaction_to_file(agent, result.new_messages())
-            st.session_state._last_response = full_text
-        q.put(None)  # sentinela de fim
+        try:
+            async with agent.run_stream(user_prompt=prompt) as result:
+                last_len = 0
+                full_text = ""
+                async for chunk in result.stream_output(debounce_by=0.01):
+                    new_text = chunk[last_len:]
+                    last_len = len(chunk)
+                    full_text = chunk
+                    if new_text:
+                        q.put(new_text)
+                logs.log_interaction_to_file(agent, result.new_messages())
+                st.session_state["_last_response"] = full_text
+        finally:
+            # Mesmo com erro, libere o consumidor para não travar o teste/UI
+            q.put(None)
 
     # roda o producer async em um thread separado, com um único asyncio.run
     t = threading.Thread(target=lambda: asyncio.run(produce()), daemon=True)
