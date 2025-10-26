@@ -1,5 +1,5 @@
 import streamlit as st
-import asyncio, threading, queue
+import asyncio
 
 import ingest
 import search_agent
@@ -40,34 +40,31 @@ for msg in st.session_state.messages:
 
 # --- Streaming helper ---
 def stream_response(prompt: str):
-    import asyncio, threading, queue
-    q = queue.Queue()
-    DONE = object()
+    async def agen():
+        async with agent.run_stream(user_prompt=prompt) as result:
+            last_len = 0
+            full_text = ""
+            async for chunk in result.stream_output(debounce_by=0.01):
+                # stream only the delta
+                new_text = chunk[last_len:]
+                last_len = len(chunk)
+                full_text = chunk
+                if new_text:
+                    yield new_text
+            # log once complete
+            logs.log_interaction_to_file(agent, result.new_messages())
+            st.session_state._last_response = full_text
 
-    def runner():
-        async def task():
-            async with agent.run_stream(user_prompt=prompt) as result:
-                async for chunk in result.stream_output(debounce_by=0.01):
-                    # pydantic-ai pode entregar objeto; pegue o texto
-                    text = getattr(chunk, "text", chunk)
-                    if not isinstance(text, str):
-                        text = str(text)
-                    q.put(text)
-                # guarda resposta completa e logs
-                full = await result.get_output_str()
-                st.session_state._last_response = full
-                logs.log_interaction_to_file(agent, result.new_messages())
-            q.put(DONE)
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    agen_obj = agen()
 
-        asyncio.run(task())
-
-    threading.Thread(target=runner, daemon=True).start()
-
-    while True:
-        item = q.get()
-        if item is DONE:
-            return
-        yield item
+    try:
+        while True:
+            piece = loop.run_until_complete(agen_obj.__anext__())
+            yield piece
+    except StopAsyncIteration:
+        return
 
 
 # --- Chat input ---
