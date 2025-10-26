@@ -12,14 +12,10 @@ jobs:
     permissions:
       contents: read
     env:
-      # Disponibiliza para os testes que precisarem
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       PYTHONWARNINGS: default
+
     steps:
-
-      # - name: Lint
-      #   run: ruff check .
-
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -32,11 +28,15 @@ jobs:
       - name: Install project deps (if present)
         run: |
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          pip install -r requirements-dev.txt
+          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+
+      # (Opcional) Lint — descomente se quiser
+      # - name: Lint
+      #   run: ruff check .
 
       - name: Run tests with coverage
         run: |
-          pytest -q --maxfail=1 --disable-warnings --cov=. --cov-report=term-missing --cov-report=xml
+          pytest -q --maxfail=1 --disable-warnings --cov=app --cov-report=term-missing --cov-report=xml
 
       - name: Upload coverage.xml
         uses: actions/upload-artifact@v4

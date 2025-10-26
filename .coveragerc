@@ -1,7 +1,9 @@
 [run]
 branch = True
-source = .
+source = app
 omit =
+    tests/*
+    */tests/*
     **/.venv/*
     **/.env/*
 
