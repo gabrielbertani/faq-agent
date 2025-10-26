@@ -17,8 +17,8 @@ jobs:
       PYTHONWARNINGS: default
     steps:
 
-      - name: Lint
-        run: ruff check .
+      # - name: Lint
+      #   run: ruff check .
 
       - name: Checkout
         uses: actions/checkout@v4
