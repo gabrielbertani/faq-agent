@@ -2,10 +2,9 @@
 branch = True
 source = .
 omit =
-    **/__init__.py
-    **/tests/*
     **/.venv/*
     **/.env/*
+
 [report]
 fail_under = 80
 show_missing = True
