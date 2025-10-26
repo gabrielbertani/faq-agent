@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, development]
+    branches: [main, develop]
   pull_request:
-    branches: [main, development]
+    branches: [main, develop]
 
 jobs:
   tests:
@@ -19,7 +19,7 @@ jobs:
 
       - name: Lint
         run: ruff check .
-        
+
       - name: Checkout
         uses: actions/checkout@v4
 
