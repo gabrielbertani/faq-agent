@@ -4,7 +4,8 @@ import asyncio
 import ingest
 import search_agent
 import logs
-
+import threading
+import queue
 
 # --- Initialization ---
 @st.cache_resource
@@ -40,31 +41,36 @@ for msg in st.session_state.messages:
 
 # --- Streaming helper ---
 def stream_response(prompt: str):
-    async def agen():
+    q: "queue.Queue[str | None]" = queue.Queue()
+
+    async def produce():
         async with agent.run_stream(user_prompt=prompt) as result:
             last_len = 0
             full_text = ""
             async for chunk in result.stream_output(debounce_by=0.01):
-                # stream only the delta
+                # envia só o delta
                 new_text = chunk[last_len:]
                 last_len = len(chunk)
                 full_text = chunk
                 if new_text:
-                    yield new_text
-            # log once complete
+                    q.put(new_text)
+            # terminou: log + guarda resposta completa
             logs.log_interaction_to_file(agent, result.new_messages())
             st.session_state._last_response = full_text
+        # sentinela de fim
+        q.put(None)
 
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    agen_obj = agen()
+    # roda o producer async em um thread separado, com um único asyncio.run
+    t = threading.Thread(target=lambda: asyncio.run(produce()), daemon=True)
+    t.start()
 
-    try:
-        while True:
-            piece = loop.run_until_complete(agen_obj.__anext__())
-            yield piece
-    except StopAsyncIteration:
-        return
+    # consumidor síncrono para o st.write_stream
+    while True:
+        piece = q.get()
+        if piece is None:
+            break
+        yield piece
+
 
 
 # --- Chat input ---
