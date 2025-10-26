@@ -3,11 +3,10 @@ import threading
 import queue
 import streamlit as st
 
-
 from . import ingest
 from . import logs
 from . import search_agent
-from . import search_tools  # se não usar, pode remover
+from . import search_tools  # remova se não usar
 
 
 # --- Initialization (cacheado) ---
@@ -39,6 +38,7 @@ def stream_response(agent, prompt: str):
                     full_text = chunk
                     if new_text:
                         q.put(new_text)
+                # terminou: log + guarda resposta completa
                 logs.log_interaction_to_file(agent, result.new_messages())
                 st.session_state["_last_response"] = full_text
         finally:
@@ -68,17 +68,17 @@ def run():
 
     # Initialize chat history
     if "messages" not in st.session_state:
-        st.session_state.messages = []
+        st.session_state["messages"] = []
 
     # Display chat history
-    for msg in st.session_state.messages:
+    for msg in st.session_state["messages"]:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
     # --- Chat input ---
     if prompt := st.chat_input("Ask your question..."):
         # User message
-        st.session_state.messages.append({"role": "user", "content": prompt})
+        st.session_state["messages"].append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
 
@@ -87,8 +87,8 @@ def run():
             response_text = st.write_stream(stream_response(agent, prompt))
 
         # Save full response to history
-        final_text = getattr(st.session_state, "_last_response", response_text)
-        st.session_state.messages.append({"role": "assistant", "content": final_text})
+        final_text = st.session_state.get("_last_response", response_text)
+        st.session_state["messages"].append({"role": "assistant", "content": final_text})
 
 
 # Importar o módulo NÃO executa a app (bom para testes/coverage)
