@@ -1,64 +1,52 @@
-import streamlit as st
 import asyncio
-
-import ingest
-import search_agent
-import logs
 import threading
 import queue
+import streamlit as st
 
-# --- Initialization ---
+# --- compat: permite rodar como pacote (tests) e como script (streamlit run app/app.py)
+try:
+    from . import ingest, logs, search_agent, search_tools  # type: ignore
+except Exception:
+    import sys, pathlib
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+    from app import ingest, logs, search_agent, search_tools  # type: ignore
+
+
+# --- Initialization (cacheado) ---
 @st.cache_resource
 def init_agent():
     repo_owner = "DataTalksClub"
     repo_name = "faq"
 
-    def filter(doc):
+    def filter_doc(doc):
         return "data-engineering" in doc["filename"]
 
     st.write("🔄 Indexing repo...")
-    index = ingest.index_data(repo_owner, repo_name, filter=filter)
+    index = ingest.index_data(repo_owner, repo_name, filter=filter_doc)
     agent = search_agent.init_agent(index, repo_owner, repo_name)
     return agent
 
 
-agent = init_agent()
-
-# --- Streamlit UI ---
-st.set_page_config(page_title="AI FAQ Assistant", page_icon="🤖", layout="centered")
-st.title("🤖 AI FAQ Assistant")
-st.caption("Ask me anything about the DataTalksClub/faq repository")
-
-# Initialize chat history
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-# Display chat history
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
-
-
-# --- Streaming helper ---
-def stream_response(prompt: str):
-    q: "queue.Queue[str | None]" = queue.Queue()
+def stream_response(agent, prompt: str):
+    q = queue.Queue()  # Queue[str | None]
 
     async def produce():
-        async with agent.run_stream(user_prompt=prompt) as result:
-            last_len = 0
-            full_text = ""
-            async for chunk in result.stream_output(debounce_by=0.01):
-                # envia só o delta
-                new_text = chunk[last_len:]
-                last_len = len(chunk)
-                full_text = chunk
-                if new_text:
-                    q.put(new_text)
-            # terminou: log + guarda resposta completa
-            logs.log_interaction_to_file(agent, result.new_messages())
-            st.session_state._last_response = full_text
-        # sentinela de fim
-        q.put(None)
+        try:
+            async with agent.run_stream(user_prompt=prompt) as result:
+                last_len = 0
+                full_text = ""
+                async for chunk in result.stream_output(debounce_by=0.01):
+                    new_text = chunk[last_len:]
+                    last_len = len(chunk)
+                    full_text = chunk
+                    if new_text:
+                        q.put(new_text)
+                # terminou: log + guarda resposta completa
+                logs.log_interaction_to_file(agent, result.new_messages())
+                st.session_state["_last_response"] = full_text
+        finally:
+            # Mesmo com erro, libere o consumidor para não travar o teste/UI
+            q.put(None)
 
     # roda o producer async em um thread separado, com um único asyncio.run
     t = threading.Thread(target=lambda: asyncio.run(produce()), daemon=True)
@@ -72,19 +60,40 @@ def stream_response(prompt: str):
         yield piece
 
 
+def run():
+    # --- Streamlit UI ---
+    st.set_page_config(page_title="AI FAQ Assistant", page_icon="🤖", layout="centered")
+    st.title("🤖 AI FAQ Assistant")
+    st.caption("Ask me anything about the DataTalksClub/faq repository")
 
-# --- Chat input ---
-if prompt := st.chat_input("Ask your question..."):
-    # User message
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
+    # Inicializa o agente (cacheado)
+    agent = init_agent()
 
-    # Assistant message (streamed)
-    with st.chat_message("assistant"):
-        response_text = st.write_stream(stream_response(prompt))
+    # Initialize chat history
+    if "messages" not in st.session_state:
+        st.session_state["messages"] = []
 
-    # Save full response to history
-    final_text = getattr(st.session_state, "_last_response", response_text)
-    st.session_state.messages.append({"role": "assistant", "content": final_text})
+    # Display chat history
+    for msg in st.session_state["messages"]:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
 
+    # --- Chat input ---
+    if prompt := st.chat_input("Ask your question..."):
+        # User message
+        st.session_state["messages"].append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        # Assistant message (streamed)
+        with st.chat_message("assistant"):
+            response_text = st.write_stream(stream_response(agent, prompt))
+
+        # Save full response to history
+        final_text = st.session_state.get("_last_response", response_text)
+        st.session_state["messages"].append({"role": "assistant", "content": final_text})
+
+
+# Importar o módulo NÃO executa a app (bom para testes/coverage)
+if __name__ == "__main__":
+    run()
